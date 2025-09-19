@@ -1,0 +1,44 @@
+### 락 없는 상태 Race Condition 테스트 (product_plain 테이블 3번 상품)
+
+### 락 없는 재고 감소 #1 (동시 실행)
+PATCH http://localhost:8080/api/no-lock/products/3/stock
+Content-Type: application/json
+
+{
+  "quantity": -1
+}
+
+### 락 없는 재고 감소 #2 (동시 실행)
+PATCH http://localhost:8080/api/no-lock/products/3/stock
+Content-Type: application/json
+
+{
+  "quantity": -1
+}
+
+### 락 없는 재고 감소 #3 (동시 실행)
+PATCH http://localhost:8080/api/no-lock/products/3/stock
+Content-Type: application/json
+
+{
+  "quantity": -1
+}
+
+### 락 없는 재고 감소 #4 (동시 실행)
+PATCH http://localhost:8080/api/no-lock/products/3/stock
+Content-Type: application/json
+
+{
+  "quantity": -1
+}
+
+### 락 없는 재고 감소 #5 (동시 실행)
+PATCH http://localhost:8080/api/no-lock/products/3/stock
+Content-Type: application/json
+
+{
+  "quantity": -1
+}
+
+### 결과 확인 (product_plain 테이블 3번 상품)
+GET http://localhost:8080/api/pessimistic/products/3

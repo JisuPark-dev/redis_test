@@ -1,0 +1,72 @@
+### 동시성 테스트 (한 번의 API 호출로 내부에서 100개 스레드 실행)
+
+### 1. 락 없는 상태 동시성 테스트 (100개 스레드, -1씩)
+POST http://localhost:8080/api/no-lock/products/3/concurrent-test
+Content-Type: application/json
+
+{
+  "quantity": -1,
+  "concurrentCount": 100
+}
+
+### 2. 비관적 락 동시성 테스트 (100개 스레드, -1씩)
+POST http://localhost:8080/api/pessimistic/products/1/concurrent-test
+Content-Type: application/json
+
+{
+  "quantity": -1,
+  "concurrentCount": 100
+}
+
+### 3. Redis 분산락 동시성 테스트 (100개 스레드, -1씩)
+POST http://localhost:8080/api/redis-lock/products/2/concurrent-test
+Content-Type: application/json
+
+{
+  "quantity": -1,
+  "concurrentCount": 100
+}
+
+### 4. 재고 초기화 (테스트 전)
+### 비관적 락 상품 재고를 100으로 설정
+PUT http://localhost:8080/api/pessimistic/products/1
+Content-Type: application/json
+
+{
+  "name": "비관적 락 테스트 상품",
+  "priceKrw": 20000,
+  "stockQty": 100,
+  "version": 0
+}
+
+### Redis 분산락 상품 재고를 100으로 설정
+PUT http://localhost:8080/api/redis-lock/products/2
+Content-Type: application/json
+
+{
+  "name": "Redis 분산락 테스트 상품",
+  "priceKrw": 30000,
+  "stockQty": 100,
+  "version": 0
+}
+
+### 락 없는 상품 재고를 100으로 설정 (비관적 락 API 사용)
+PUT http://localhost:8080/api/pessimistic/products/3
+Content-Type: application/json
+
+{
+  "name": "락 없는 테스트 상품",
+  "priceKrw": 5000,
+  "stockQty": 100,
+  "version": 0
+}
+
+### 5. 결과 확인
+### 비관적 락 상품 조회
+GET http://localhost:8080/api/pessimistic/products/1
+
+### Redis 분산락 상품 조회
+GET http://localhost:8080/api/redis-lock/products/2
+
+### 락 없는 상품 조회
+GET http://localhost:8080/api/pessimistic/products/3
