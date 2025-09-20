@@ -82,35 +82,34 @@ curl -X POST "http://localhost:8080/api/redis-lock/products/2/concurrent-test" \
   -d '{"quantity": -1, "concurrentCount": 100}'
 ```
 
-### 4. 성능 비교 테스트
+#### 2. 동시성 테스트 (100개 스레드가 동시에 -1 실행)
 
-**목표**: 각 락 메커니즘의 성능 차이 확인
-
+**낙관적 락 테스트**:
 ```bash
-echo "Pessimistic Lock Test 시작: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
-time for i in {1..100}; do
-  curl -s -X PATCH "http://localhost:8080/api/pessimistic/products/1/stock" \
-    -H "Content-Type: application/json" \
-    -d '{"quantity": 0}' > /dev/null
-done
-echo "Pessimistic Lock Test 종료: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
+curl -X POST "http://localhost:8080/api/products/1/concurrent-test" \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": -1, "concurrentCount": 1000}'
+```
 
-echo "Redis Lock Test 시작: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
-time for i in {1..100}; do
-  curl -s -X PATCH "http://localhost:8080/api/redis-lock/products/2/stock" \
-    -H "Content-Type: application/json" \
-    -d '{"quantity": 0}' > /dev/null
-done
-echo "Redis Lock Test 종료: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
+**락 없는 상태 Race Condition 테스트**:
+```bash
+curl -X POST "http://localhost:8080/api/no-lock/products/3/concurrent-test" \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": -1, "concurrentCount": 1000}'
+```
 
-echo "Optimistic Lock Test 시작: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
-time for i in {1..100}; do
-  curl -s -X PATCH "http://localhost:8080/api/products/1/stock" \
-    -H "Content-Type: application/json" \
-    -d '{"quantity": 0}' > /dev/null
-done
-echo "Optimistic Lock Test 종료: $(date '+%Y-%m-%d %H:%M:%S.%3N')"
+**비관적 락 테스트**:
+```bash
+curl -X POST "http://localhost:8080/api/pessimistic/products/1/concurrent-test" \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": -1, "concurrentCount": 1000}'
+```
 
+**Redis 분산락 테스트**:
+```bash  
+curl -X POST "http://localhost:8080/api/redis-lock/products/2/concurrent-test" \
+  -H "Content-Type: application/json" \
+  -d '{"quantity": -1, "concurrentCount": 1000}'
 ```
 
 ## 테스트 결과 예상

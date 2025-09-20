@@ -98,6 +98,14 @@ public class ProductController {
         return ResponseEntity.ok(result);
     }
     
+    @PostMapping("/{id}/true-concurrent-test")
+    public ResponseEntity<ConcurrentTestResult> testTrueConcurrentStockUpdate(
+            @PathVariable Long id,
+            @Valid @RequestBody ConcurrentTestRequest request) {
+        ConcurrentTestResult result = productService.testTrueConcurrentStockUpdate(id, request);
+        return ResponseEntity.ok(result);
+    }
+    
     @ExceptionHandler(OptimisticLockingFailureException.class)
     public ResponseEntity<Map<String, String>> handleOptimisticLock(OptimisticLockingFailureException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)

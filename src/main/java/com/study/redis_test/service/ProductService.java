@@ -9,7 +9,10 @@ import com.study.redis_test.entity.Product;
 import com.study.redis_test.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.ApplicationContext;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -17,6 +20,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -30,6 +34,7 @@ public class ProductService {
     
     private final ProductRepository productRepository;
     private final TransactionTemplate transactionTemplate;
+    private final ApplicationContext applicationContext;
     
     @Transactional
     public ProductResponse createProduct(ProductCreateRequest request) {
@@ -92,7 +97,13 @@ public class ProductService {
     }
     
     @Transactional
+    @Retryable(
+        value = OptimisticLockingFailureException.class,
+        maxAttempts = 10,
+        backoff = @Backoff(delay = 50)
+    )
     public ProductResponse updateStock(Long id, Integer quantity) {
+        log.debug("Updating stock for product {} with quantity {}", id, quantity);
         Product product = productRepository.findByIdWithOptimisticLock(id)
                 .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다: " + id));
         
@@ -110,6 +121,7 @@ public class ProductService {
         long startTime = System.currentTimeMillis();
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failCount = new AtomicInteger(0);
+        AtomicInteger retryCount = new AtomicInteger(0);
         List<String> errors = new ArrayList<>();
         
         ExecutorService executor = Executors.newFixedThreadPool(10);
@@ -119,25 +131,9 @@ public class ProductService {
         for (int i = 0; i < request.getConcurrentCount(); i++) {
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 try {
-                    transactionTemplate.execute(status -> {
-                        Product product = productRepository.findByIdWithOptimisticLock(id)
-                                .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다: " + id));
-                        
-                        int newStock = product.getStockQty() + request.getQuantity();
-                        if (newStock < 0) {
-                            throw new IllegalArgumentException("재고가 부족합니다. 현재 재고: " + product.getStockQty());
-                        }
-                        
-                        product.setStockQty(newStock);
-                        productRepository.save(product);
-                        return null;
-                    });
+                    ProductService productService = applicationContext.getBean(ProductService.class);
+                    productService.updateStock(id, request.getQuantity());
                     successCount.incrementAndGet();
-                } catch (OptimisticLockingFailureException e) {
-                    failCount.incrementAndGet();
-                    synchronized (errors) {
-                        errors.add("낙관적 락 충돌: " + e.getMessage());
-                    }
                 } catch (Exception e) {
                     failCount.incrementAndGet();
                     synchronized (errors) {
@@ -163,7 +159,77 @@ public class ProductService {
                 .totalExecutionTimeMs(endTime - startTime)
                 .finalStockQty(finalProduct.getStockQty())
                 .errors(errors)
-                .lockType("OPTIMISTIC")
+                .lockType("OPTIMISTIC_WITH_RETRY")
+                .build();
+    }
+    
+    public ConcurrentTestResult testTrueConcurrentStockUpdate(Long id, ConcurrentTestRequest request) {
+        long startTime = System.currentTimeMillis();
+        AtomicInteger successCount = new AtomicInteger(0);
+        AtomicInteger failCount = new AtomicInteger(0);
+        List<String> errors = new ArrayList<>();
+        
+        // 요청 수만큼 스레드 생성 (최대 1000개로 제한)
+        int threadCount = Math.min(request.getConcurrentCount(), 1000);
+        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+        
+        // CountDownLatch로 모든 스레드가 동시에 시작하도록 제어
+        CountDownLatch startLatch = new CountDownLatch(1);
+        CountDownLatch endLatch = new CountDownLatch(threadCount);
+        
+        for (int i = 0; i < threadCount; i++) {
+            executor.submit(() -> {
+                try {
+                    // 모든 스레드가 여기서 대기
+                    startLatch.await();
+                    
+                    // 동시에 실행
+                    ProductService productService = applicationContext.getBean(ProductService.class);
+                    productService.updateStock(id, request.getQuantity());
+                    successCount.incrementAndGet();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    failCount.incrementAndGet();
+                    synchronized (errors) {
+                        errors.add("인터럽트 오류: " + e.getMessage());
+                    }
+                } catch (Exception e) {
+                    failCount.incrementAndGet();
+                    synchronized (errors) {
+                        errors.add("오류: " + e.getMessage());
+                    }
+                } finally {
+                    endLatch.countDown();
+                }
+            });
+        }
+        
+        // 모든 스레드가 준비되면 동시에 시작
+        startLatch.countDown();
+        
+        try {
+            // 모든 스레드가 완료될 때까지 대기
+            endLatch.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("대기 중 인터럽트 발생", e);
+        }
+        
+        executor.shutdown();
+        
+        long endTime = System.currentTimeMillis();
+        
+        Product finalProduct = productRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("상품을 찾을 수 없습니다: " + id));
+        
+        return ConcurrentTestResult.builder()
+                .totalRequests(threadCount)
+                .successCount(successCount.get())
+                .failCount(failCount.get())
+                .totalExecutionTimeMs(endTime - startTime)
+                .finalStockQty(finalProduct.getStockQty())
+                .errors(errors)
+                .lockType("OPTIMISTIC_WITH_RETRY_TRUE_CONCURRENT")
                 .build();
     }
 }
